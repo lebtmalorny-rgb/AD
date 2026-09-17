@@ -1,0 +1,15 @@
+--- a/ansible/post-deploy.yml
++++ b/ansible/post-deploy.yml
+@@ -82,3 +82,12 @@
+         octavia_openrc_output_dir: "{{ node_config }}"
+       when:
+         - enable_octavia | bool
++
++- name: Apply optional PVS AD group role assignments
++  hosts: localhost
++  gather_facts: false
++  tasks:
++    - name: Run PVS RBAC after generating client configuration
++      ansible.builtin.include_role:
++        name: pvs-rbac
++      when: pvs_rbac_enabled | default(false) | bool

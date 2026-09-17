@@ -1,88 +1,97 @@
 # Пользователи и группы AD для PVS
 
-Подключение созданных групп к вашему Kolla-Ansible описано в
-[инструкции по интеграции AD с OpenStack и OpenSearch](AD-INTEGRATION.md).
-Она содержит точные пути, конфигурационные примеры и проверки прав.
+[Create-PvsAdAccounts.ps1](Create-PvsAdAccounts.ps1) создаёт **четыре группы
+и четырёх пользователей** в существующей OU. Состав соответствует пользовательским
+ролям PVS и Grafana из приложенной модели. LCMP включается отдельной опцией.
 
-`Create-PvsAdAccounts.ps1` создаёт три пользователя и три группы безопасности
-типа Global в существующей OU. Каждый пользователь включается в свою группу.
-
-| Пользователь | Группа AD | Назначение по ролевой модели |
+| Пользователь / роль | Группа AD | Где назначаются права |
 | --- | --- | --- |
-| `virtualization_admin` | `PVS_VirtAdmins` | Роль OpenStack `virtualization_admin` с наследованием `admin` в назначенном домене и проекте |
-| `security_admin` | `PVS_SecurityAudit` | Роль OpenSearch `security_admin`: аудит журналов |
-| `vm_developer` | `PVS_VMDevelopers` | Роль OpenStack `vm_developer`: разработчик ВМ |
+| `virtualization_admin` | `PVS_VirtAdmins` | Keystone: `virtualization_admin → admin`, согласованный домен и проект |
+| `security_admin` | `PVS_SecurityAudit` | OpenSearch: аудит `flog-*`, tenant `security-audit` |
+| `vm_developer` | `PVS_VMDevelopers` | Keystone: `vm_developer → member → reader` с ограничениями API policy |
+| `grafana_admin` | `PVS_GrafanaAdmins` | Grafana: отдельное сопоставление LDAP-группы с Grafana Server Administrator |
 
-## Требования
-
-- Windows PowerShell 5.1 и модуль `ActiveDirectory` из RSAT либо средств управления AD DS.
-- Доступный контроллер домена с возможностью записи и заранее созданная OU.
-- Запуск от учётной записи с правами создания пользователей, групп и изменения
-  членства в этой OU. Права Domain Admin не обязательны при делегировании этих операций.
-- Указанные имена пользователей и групп ещё не заняты в домене.
+Имена групп — предложенные значения: в модели их заполняет владелец региона.
+Сохранены ранее использованные имена трёх групп PVS. Для мониторинга используется
+подтверждённое имя `grafana_admin`, несмотря на `kolana_admin` в части таблиц модели.
 
 ## Запуск
 
-Скачайте скрипт, откройте PowerShell в его каталоге и выполните:
+Требуются Windows PowerShell 5.1, модуль `ActiveDirectory` (RSAT), контроллер AD
+с возможностью записи и существующая OU. Запускайте от учётной записи с
+делегированными правами создания пользователей/групп и изменения членства в этой OU.
 
 ```powershell
 .\Create-PvsAdAccounts.ps1 -Server "dc01.example.local" -OU "OU=PVS,DC=example,DC=local"
 ```
 
-Замените `dc01.example.local` на FQDN своего контроллера домена, а `OU` — на полный
-Distinguished Name существующей OU. Домен для UPN скрипт получает автоматически
-с указанного контроллера; например, получится `vm_developer@example.local`.
+Введите отдельный пароль для каждого нового пользователя. Ввод скрыт;
+пароли должны соответствовать политике AD. Пользователи создаются включёнными,
+без обязательной смены пароля при следующем входе, чтобы работала LDAP-аутентификация.
+Бессрочные пароли не устанавливаются. Каждый новый пользователь включается в свою
+группу; вложенное членство между ролями не задаётся.
 
-Введите отдельный пароль для каждого пользователя. Ввод скрыт, пароли не записываются
-в скрипт и должны соответствовать политике AD. Пользователи создаются включёнными,
-без обязательной смены пароля при следующем входе; бессрочные пароли не устанавливаются.
-После создания скрипт выводит UPN пользователя и DN его группы.
+Логины с именами ролей сохранены по исходной задаче для первоначального стенда.
+В рабочей эксплуатации в эти же группы включаются персональные ПУЗ:
+для выдачи роли каждому человеку отдельную группу создавать не нужно.
 
-Скрипт предназначен для первичного создания. Если любое из шести имён уже существует,
-он останавливается до создания объектов. При ошибке во время создания уже созданные
-объекты остаются в AD: автоматического отката и продолжения повторным запуском нет.
-Например, при отклонении пароля политикой AD может остаться отключённый пользователь.
+## LCMP — отдельная опция
 
-## Проверка членства
+```powershell
+.\Create-PvsAdAccounts.ps1 -Server "dc01.example.local" -OU "OU=LCMP,DC=example,DC=local" -Scope LCMP
+```
 
-Укажите тот же контроллер домена:
+| Пользователь / роль | Группа AD |
+| --- | --- |
+| `platformv.admin` | `LCMP_PlatformAdmins` |
+| `platformv.operator` | `LCMP_RegionAdmins` |
+| `platformv.viewer` | `LCMP_Viewers` |
+
+Роли LCMP сопоставляются в LCMP независимо от OpenStack. `-Scope Grafana` создаёт
+только группу и пользователя мониторинга; `-Scope All` — все семь пар в указанной OU.
+Повторяйте тот же `Scope` и OU, если объекты уже создавались раздельно.
+
+## Повторный запуск
+
+Скрипт создаёт недостающие объекты и добавляет недостающее прямое членство.
+Существующие пароли, состояние включения пользователей и лишние членства не меняет.
+Перед записью проверяет все выбранные имена: совпавший объект должен иметь
+ожидаемый тип и точный DN `CN=<имя>,<OU>`; группа должна быть `Global Security`.
+Коллизия с объектом в другой OU, другим типом или scope группы останавливает запуск.
+
+Операции AD не образуют транзакцию. При отказе посреди выполнения уже созданные
+объекты остаются. Если AD создал пользователя отключённым из-за отклонённого пароля,
+исправьте пароль и включите его средствами AD: повторный запуск этого не делает.
+
+## Что настраивается отдельно
+
+- `vm_admin`, `vm_user`, `vm_auditor` — гостевые учётные записи, создаваемые через
+  cloud-init или подготовленный образ. Права внутри ВМ задаются средствами гостевой ОС.
+- `pvs.git.service` и остальные ТУЗ — сервисные учётные записи компонентов;
+  этот скрипт их не создаёт. Bind-учётная запись LDAP также готовится отдельно.
+- AD-группы не получают права Domain Admin. Их прикладные права задаются
+  в Keystone, OpenSearch, Grafana и LCMP.
+
+Подключение LDAPS, CA, политики и ручные назначения описаны в
+[AD-INTEGRATION.md](AD-INTEGRATION.md).
+Автоматизация Keystone через `globals` и Kolla `post-deploy` — в
+[POSTDEPLOY.md](POSTDEPLOY.md). OpenSearch mapping применяется штатным
+`deploy/reconfigure`. Настройка LDAP mapping Grafana и LCMP в этот пакет не входит:
+создание их AD-групп само по себе не включает вход и права в приложениях.
+
+`vm_developer` нельзя считать соответствующим модели только на основании `member`:
+необходимо запретить операции из матрицы, включая удаление, запуск/остановку и снимки ВМ.
+
+## Проверка
 
 ```powershell
 $server = "dc01.example.local"
-'PVS_VirtAdmins', 'PVS_SecurityAudit', 'PVS_VMDevelopers' | ForEach-Object {
+'PVS_VirtAdmins', 'PVS_SecurityAudit', 'PVS_VMDevelopers', 'PVS_GrafanaAdmins' | ForEach-Object {
     Write-Host "Group: $_"
     Get-ADGroupMember -Identity $_ -Server $server | Select-Object SamAccountName
 }
 ```
 
-В каждой группе должен находиться соответствующий пользователь из таблицы.
-
-## Назначение прав в приложениях
-
-Создание группы AD само по себе не назначает права OpenStack или OpenSearch.
-После настройки интеграции с AD по LDAPS сопоставьте группы с прикладными ролями:
-
-- `PVS_VirtAdmins` — с `virtualization_admin` в нужном домене/проекте OpenStack.
-- `PVS_VMDevelopers` — с `vm_developer` в нужном проекте OpenStack.
-  Предусмотренный моделью запрет удаления ВМ должен обеспечиваться политиками OpenStack;
-  одно наследование `member`/`reader` этот запрет не реализует.
-- `PVS_SecurityAudit` — с `security_admin` в OpenSearch: чтение, поиск и экспорт
-  событий `flog-*`, работа с поисками и dashboards в tenant `security-audit`.
-  Изменение/удаление событий, управление индексами, пользователями, ролями
-  и конфигурацией OpenSearch должны быть запрещены.
-
-Скрипт не настраивает LDAPS, прикладные роли и политики. Включение пользователей
-в административные группы самого AD не выполняется.
-
-## Проверка скрипта
-
-Выполнена статическая проверка файла. Запуск в Windows PowerShell, создание объектов
-в AD и вход в OpenStack/OpenSearch в рамках подготовки не проверялись.
-
-## Документация
-
-- [Microsoft: New-ADUser](https://learn.microsoft.com/en-us/powershell/module/activedirectory/new-aduser)
-- [Microsoft: New-ADGroup](https://learn.microsoft.com/en-us/powershell/module/activedirectory/new-adgroup)
-- [Microsoft: Add-ADGroupMember](https://learn.microsoft.com/en-us/powershell/module/activedirectory/add-adgroupmember)
-- [Keystone: интеграция с LDAP](https://docs.openstack.org/keystone/latest/admin/configuration.html#integrate-identity-with-ldap)
-- [OpenSearch: Active Directory и LDAP](https://docs.opensearch.org/latest/security/authentication-backends/ldap/)
+Локальные проверки разработки: `pwsh -NoProfile -File tests/Test-AdAccounts.ps1`
+использует подставные AD-команды и проверяет 10 сценариев без связи с AD.
+Это проверка логики PowerShell, а не подтверждение работы RSAT/AD на Windows.

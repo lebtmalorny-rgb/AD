@@ -4,6 +4,10 @@
 pvs_ad_host: dc01.example.local
 pvs_ad_base_dn: OU=PVS,DC=example,DC=local
 pvs_ad_bind_dn: CN=svc_pvs_ldap,OU=ServiceAccounts,DC=example,DC=local
+pvs_ad_groups:
+  virtualization_admin: PVS_VirtAdmins
+  vm_developer: PVS_VMDevelopers
+  security_admin: PVS_SecurityAudit
 kolla_copy_ca_into_containers: true
 enable_security_audit: 'yes'
 horizon_keystone_multidomain: true
@@ -255,7 +259,7 @@ opensearch_security_audit_config:
       config_version: 2
     security_admin:
       backend_roles:
-      - PVS_SecurityAudit
+      - {{ pvs_ad_groups.security_admin | to_json }}
   tenants.yml: |
     _meta:
       type: tenants

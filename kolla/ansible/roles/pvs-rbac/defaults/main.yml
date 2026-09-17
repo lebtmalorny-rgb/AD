@@ -1,0 +1,18 @@
+---
+pvs_rbac_enabled: false
+pvs_rbac_cloud: kolla-admin
+pvs_rbac_python_interpreter: "{{ ansible_playbook_python }}"
+pvs_ad_domain: AD
+pvs_ad_groups:
+  virtualization_admin: PVS_VirtAdmins
+  vm_developer: PVS_VMDevelopers
+  security_admin: PVS_SecurityAudit
+pvs_keystone_project: PVS
+pvs_keystone_project_domain: Default
+pvs_vm_developer_policy_ready: false
+pvs_admin_implied_role_ready: false
+pvs_keystone_assignments:
+  - role: virtualization_admin
+    state: present
+  - role: vm_developer
+    state: present

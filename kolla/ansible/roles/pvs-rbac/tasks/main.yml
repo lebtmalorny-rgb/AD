@@ -1,0 +1,16 @@
+---
+- name: Reconcile PVS Keystone project roles and AD group assignments
+  vars:
+    ansible_python_interpreter: "{{ pvs_rbac_python_interpreter }}"
+  pvs_keystone_rbac:
+    cloud: "{{ pvs_rbac_cloud }}"
+    ad_domain: "{{ pvs_ad_domain }}"
+    groups: "{{ pvs_ad_groups }}"
+    project: "{{ pvs_keystone_project }}"
+    project_domain: "{{ pvs_keystone_project_domain }}"
+    assignments: "{{ pvs_keystone_assignments }}"
+    developer_policy_ready: "{{ pvs_vm_developer_policy_ready }}"
+    admin_implied_role_ready: "{{ pvs_admin_implied_role_ready }}"
+  environment:
+    OS_CLIENT_CONFIG_FILE: "{{ node_config }}/clouds.yaml"
+  when: pvs_rbac_enabled | bool

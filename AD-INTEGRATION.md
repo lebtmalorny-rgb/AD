@@ -3,7 +3,9 @@
 Инструкция относится к архиву `kolla-ansible-pvs_1.0.0_14.09.zip`.
 Она показывает, что добавить в конфигурацию инсталляции Kolla, чтобы Keystone
 и OpenSearch использовали группы, созданные `Create-PvsAdAccounts.ps1`.
-Исходники ролей Ansible для описанного способа изменять не требуется.
+Исходники ролей Ansible для описанного ручного способа изменять не требуется.
+Для автоматизации назначений через `post-deploy` есть отдельное расширение:
+[POSTDEPLOY.md](POSTDEPLOY.md).
 
 Это инструкция и проверенные по структуре примеры. На действующем стенде
 подключение AD, применение настроек и права пользователей не проверялись.
@@ -39,6 +41,7 @@ Keystone использует LDAP в режиме чтения: создава�
 | `/etc/kolla/globals.d/90-pvs-ad.yml` | Взять [пример](examples/90-pvs-ad.yml), заменить параметры AD |
 | `/etc/kolla/globals.d/91-pvs-ad-secret.yml` | Создать зашифрованный Ansible Vault файл с паролем bind-учётной записи |
 | `/etc/kolla/config/keystone/domains/keystone.AD.conf` | Взять [шаблон LDAP-домена](examples/keystone.AD.conf), изменить `suffix` |
+| `/etc/kolla/config/keystone/keystone.conf` | Для связи `virtualization_admin → admin` добавить [override](examples/keystone-rbac.conf), сохранив остальные запрещённые implied roles |
 | `/etc/kolla/config/opensearch/opensearch_dashboards.yml` | Добавить настройки из [примера Dashboards](examples/opensearch_dashboards.yml) |
 | `/etc/kolla/certificates/ca/ad-ca.crt` | Разместить CA, подписавший сертификат LDAPS; вариант для локального источника сертификатов |
 | `/etc/kolla/config/nova/policy.yaml` | Подготовить ограничения `vm_developer` для версии Nova из ваших образов |
@@ -225,6 +228,17 @@ CSV-экспорт и доступные плагины Dashboards нужно п
 
 ## 4. Применить конфигурацию
 
+Для наследования `virtualization_admin → admin` сначала исправьте настройку
+Keystone: по умолчанию `[assignment] prohibited_implied_role = admin` запрещает
+создавать такую связь. В `/etc/kolla/config/keystone/keystone.conf` удалите только
+`admin` из этого списка, сохранив остальные значения. Если список штатный и содержит
+только `admin`, используйте [keystone-rbac.conf](examples/keystone-rbac.conf)
+с пустым значением. Это глобальная настройка Keystone: она разрешает использовать
+`admin` как implied role вообще, а не только для `virtualization_admin`.
+Права на изменение role inferences должны оставаться только у доверенных
+администраторов настройки; проверьте эффективную Keystone policy.
+[Параметр в Keystone 2025.1](https://docs.openstack.org/keystone/2025.1/configuration/samples/keystone-conf.html).
+
 Применение выполняет оператор в согласованное окно: `reconfigure` может
 перезапустить сервисы и повторно загрузить конфигурацию OpenSearch Security.
 Команды ниже являются инструкцией; при подготовке документа они не выполнялись.
@@ -247,6 +261,10 @@ security-конфигурацию кластера и включите нужн�
 
 ## 5. Создать роли и назначить их группам
 
+Этот раздел — ручной вариант. При установке расширения `pvs-rbac` проектные
+назначения и наследование выполняет `post-deploy`; доменное назначение администратора
+остаётся отдельной операцией, описанной ниже. Группы Grafana и LCMP здесь не обрабатываются.
+
 Под администратором OpenStack сначала проверьте видимость объектов AD:
 
 ```bash
@@ -258,7 +276,8 @@ openstack group list --domain AD
 группы. Если их нет, сначала исправьте LDAP, CA или поисковые базы.
 Создавать дубликаты пользователей и групп командами OpenStack не нужно.
 
-Создайте роли и наследование, если они ещё не настроены:
+После применения `prohibited_implied_role` из раздела 4 создайте роли
+и наследование, если они ещё не настроены:
 
 ```bash
 openstack role create --or-show virtualization_admin
