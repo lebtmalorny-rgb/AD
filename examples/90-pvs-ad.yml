@@ -1,0 +1,272 @@
+# Example for kolla-ansible-pvs_1.0.0_14.09.zip only. See AD-INTEGRATION.md.
+# Full dictionary override: all original security files and service users retained.
+# Define pvs_ad_bind_password separately using Ansible Vault.
+pvs_ad_host: dc01.example.local
+pvs_ad_base_dn: OU=PVS,DC=example,DC=local
+pvs_ad_bind_dn: CN=svc_pvs_ldap,OU=ServiceAccounts,DC=example,DC=local
+kolla_copy_ca_into_containers: true
+enable_security_audit: 'yes'
+horizon_keystone_multidomain: true
+horizon_keystone_domain_choices:
+  Default: Default
+  AD: Active Directory
+opensearch_security_audit_config:
+  action_groups.yml: |-
+    _meta:
+      type: actiongroups
+      config_version: 2
+  allowlist.yml: |-
+    _meta:
+      type: allowlist
+      config_version: 2
+    config:
+      enabled: false
+      requests: {}
+  audit.yml: |-
+    _meta:
+      type: audit
+      config_version: 2
+    config:
+      enabled: true
+      audit:
+        enable_rest: true
+        disabled_rest_categories: []
+        enable_transport: false
+        disabled_transport_categories: []
+        ignore_users: []
+        ignore_requests: []
+        resolve_bulk_requests: true
+        log_request_body: false
+        resolve_indices: true
+        exclude_sensitive_headers: true
+      compliance:
+        enabled: false
+  config.yml: |
+    _meta:
+      type: config
+      config_version: 2
+    config:
+      dynamic:
+        http:
+          anonymous_auth_enabled: false
+          xff:
+            enabled: false
+        authc:
+          basic_internal_auth_domain:
+            http_enabled: true
+            transport_enabled: true
+            order: 0
+            http_authenticator:
+              type: basic
+              challenge: false
+            authentication_backend:
+              type: intern
+          ldap_auth_domain:
+            http_enabled: true
+            transport_enabled: false
+            order: 1
+            http_authenticator:
+              type: basic
+              challenge: true
+            authentication_backend:
+              type: ldap
+              config:
+                enable_ssl: true
+                enable_start_tls: false
+                enable_ssl_client_auth: false
+                verify_hostnames: true
+                hosts:
+                - '{{ pvs_ad_host }}:636'
+                bind_dn: '{{ pvs_ad_bind_dn }}'
+                password: {{ pvs_ad_bind_password | to_json }}
+                pemtrustedcas_filepath: /var/lib/kolla/share/ca-certificates/ad-ca.crt
+                userbase: '{{ pvs_ad_base_dn }}'
+                usersearch: (&(objectClass=user)(sAMAccountName={0})(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+                username_attribute: sAMAccountName
+        authz:
+          ldap_roles:
+            http_enabled: true
+            transport_enabled: false
+            authorization_backend:
+              type: ldap
+              config:
+                enable_ssl: true
+                enable_start_tls: false
+                enable_ssl_client_auth: false
+                verify_hostnames: true
+                hosts:
+                - '{{ pvs_ad_host }}:636'
+                bind_dn: '{{ pvs_ad_bind_dn }}'
+                password: {{ pvs_ad_bind_password | to_json }}
+                pemtrustedcas_filepath: /var/lib/kolla/share/ca-certificates/ad-ca.crt
+                userbase: '{{ pvs_ad_base_dn }}'
+                usersearch: (&(objectClass=user)(sAMAccountName={0})(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+                username_attribute: sAMAccountName
+                rolebase: '{{ pvs_ad_base_dn }}'
+                rolesearch: (member={0})
+                rolename: cn
+                userrolename: none
+                resolve_nested_roles: false
+                skip_users:
+                - kibanaserver
+                - security_audit_admin
+                - prometheus_exporter
+                - '{{ security_audit_ingest_user }}'
+                - '{{ security_audit_readonly_user }}'
+                - '{{ security_audit_flog_ingest_user }}'
+                - '{{ opensearch_dashboards_user }}'
+        kibana:
+          multitenancy_enabled: true
+          private_tenant_enabled: false
+          default_tenant: security-audit
+          server_username: kibanaserver
+          index: .kibana
+  internal_users.yml: |-
+    _meta:
+      type: internalusers
+      config_version: 2
+    {{ security_audit_ingest_user }}:
+      hash: "{{ security_audit_ingest_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: false
+      opendistro_security_roles:
+        - security_audit_ingest
+    {{ security_audit_readonly_user }}:
+      hash: "{{ security_audit_readonly_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: false
+      opendistro_security_roles:
+        - security_audit_readonly
+        - kibana_user
+    {{ opensearch_dashboards_user }}:
+      hash: "{{ opensearch_dashboards_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: false
+      opendistro_security_roles:
+        - security_audit_readonly
+        - kibana_user
+    {{ security_audit_flog_ingest_user }}:
+      hash: "{{ security_audit_flog_ingest_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: false
+      opendistro_security_roles:
+        - flog_ingest
+    security_audit_admin:
+      hash: "{{ security_audit_admin_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: false
+      opendistro_security_roles:
+        - all_access
+    kibanaserver:
+      hash: "{{ opensearch_dashboards_backend_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: true
+      opendistro_security_roles:
+        - kibana_server
+    prometheus_exporter:
+      hash: "{{ prometheus_elasticsearch_exporter_password | password_hash('bcrypt', salt=security_audit_bcrypt_salt) }}"
+      reserved: true
+      opendistro_security_roles:
+        - prometheus_monitor
+  nodes_dn.yml: |-
+    _meta:
+      type: nodesdn
+      config_version: 2
+  roles.yml: |
+    _meta:
+      type: roles
+      config_version: 2
+    security_audit_ingest:
+      reserved: false
+      cluster_permissions:
+      - cluster:monitor/main
+      - cluster_composite_ops
+      index_permissions:
+      - index_patterns:
+        - '{{ security_audit_index_prefix }}-*'
+        allowed_actions:
+        - indices:admin/auto_create
+        - indices:admin/create
+        - indices:admin/mapping/put
+        - indices:data/write/bulk
+        - indices:data/write/bulk[s]
+        - indices:data/write/create
+        - indices:data/write/index
+        - indices:data/write/index[s]
+      tenant_permissions: []
+    security_audit_readonly:
+      reserved: false
+      cluster_permissions:
+      - indices:data/read/msearch
+      - cluster:admin/opensearch/ql/datasources/read
+      index_permissions:
+      - index_patterns:
+        - '{{ security_audit_index_prefix }}-*'
+        - '{{ opensearch_log_index_prefix }}-*'
+        allowed_actions:
+        - read
+        - indices:data/read/search
+        - indices:data/read/get
+        - indices:data/read/mget
+        - indices:data/read/search/scroll
+        - indices:data/read/search/point_in_time
+        - indices:data/read/point_in_time
+      tenant_permissions: []
+    flog_ingest:
+      reserved: false
+      cluster_permissions:
+      - cluster:monitor/main
+      - cluster_composite_ops
+      index_permissions:
+      - index_patterns:
+        - '{{ opensearch_log_index_prefix }}-*'
+        allowed_actions:
+        - indices:admin/auto_create
+        - indices:admin/create
+        - indices:admin/mapping/put
+        - indices:data/write/bulk
+        - indices:data/write/bulk[s]
+        - indices:data/write/create
+        - indices:data/write/index
+        - indices:data/write/index[s]
+      tenant_permissions: []
+    prometheus_monitor:
+      reserved: true
+      cluster_permissions:
+      - cluster_monitor
+      index_permissions:
+      - index_patterns:
+        - '*'
+        allowed_actions:
+        - indices_monitor
+      tenant_permissions: []
+    security_admin:
+      reserved: false
+      cluster_permissions:
+      - cluster_composite_ops_ro
+      index_permissions:
+      - index_patterns:
+        - '{{ opensearch_log_index_prefix }}-*'
+        allowed_actions:
+        - read
+        - view_index_metadata
+      tenant_permissions:
+      - tenant_patterns:
+        - security-audit
+        allowed_actions:
+        - kibana_all_write
+  roles_mapping.yml: |
+    _meta:
+      type: rolesmapping
+      config_version: 2
+    security_admin:
+      backend_roles:
+      - PVS_SecurityAudit
+  tenants.yml: |
+    _meta:
+      type: tenants
+      config_version: 2
+    security-audit:
+      reserved: false
+      description: PVS security audit saved searches and dashboards
+  whitelist.yml: |-
+    _meta:
+      type: whitelist
+      config_version: 2
+    config:
+      enabled: false
+      requests: {}

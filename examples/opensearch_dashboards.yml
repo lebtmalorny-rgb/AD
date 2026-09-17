@@ -1,0 +1,4 @@
+# Merge into any existing override at /etc/kolla/config/opensearch/opensearch_dashboards.yml.
+opensearch_security.multitenancy.enabled: true
+opensearch_security.multitenancy.tenants.preferred:
+  - security-audit
